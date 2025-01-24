@@ -17,12 +17,12 @@ import requests
 from fastapi import UploadFile, File, HTTPException
 import os
 
-async def transcribe_audio(file: UploadFile = File(...)):
+async def transcribe_audio(file_path: str):
     try:
-        # Ensure the uploaded file is valid
-        if not file:
-            raise HTTPException(status_code=400, detail="No file uploaded")
-        
+        # Ensure the file path exists
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=400, detail="File not found")
+
         # Get the domain URL from environment variables
         domain_url = os.getenv('DOMAIN_URL')
         if not domain_url:
@@ -31,13 +31,14 @@ async def transcribe_audio(file: UploadFile = File(...)):
         # Define the upload endpoint
         upload_endpoint = f"{domain_url}/upload"
 
-        # Prepare the file for uploading
-        files = {
-            "file": (file.filename, file.file, file.content_type)
-        }
+        # Open and read the file content
+        with open(file_path, "rb") as file:
+            files = {
+                "file": (os.path.basename(file_path), file, "audio/ogg")  # Adjust MIME type as needed
+            }
 
-        # Send the file to the server using a POST request
-        response = requests.post(upload_endpoint, files=files)
+            # Send the file to the server using a POST request
+            response = requests.post(upload_endpoint, files=files)
 
         # Check for errors in the server response
         if response.status_code != 200:
@@ -55,12 +56,6 @@ async def transcribe_audio(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
-
-async def transcribe_audio_logic(file_path: str):
-    # Example logic: Replace with your actual transcription
-    if not os.path.exists(file_path):
-        raise ValueError("File not found")
-    return {"message": f"Transcription of {file_path} completed successfully"}
 
 
 
