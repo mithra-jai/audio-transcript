@@ -1,8 +1,6 @@
 
 ## main.py ###
 import os
-import shutil
-import asyncio
 from fastapi import FastAPI, UploadFile, HTTPException, Header
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
