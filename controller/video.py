@@ -5,7 +5,7 @@ import subprocess
 from fastapi import UploadFile, HTTPException
 from fastapi.responses import JSONResponse
 
-from services.helper import transcribe_audio, transcribe_large_audio
+from services.helper import transcribe_audio
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
