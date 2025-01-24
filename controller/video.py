@@ -39,7 +39,7 @@ async def transcribe_video_file(file: UploadFile):
             raise RuntimeError(f"FFmpeg error: {result.stderr}")
 
         # Transcribe the audio file
-        transcription_result = await asyncio.to_thread(transcribe_audio, audio_path)
+        transcription_result = transcribe_audio(audio_path)
         os.remove(audio_path)
 
         return transcription_result
