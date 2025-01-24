@@ -14,16 +14,32 @@ load_dotenv()
 
 UPLOAD_DIR = "uploads"
 async def transcribe_audio(file: UploadFile = File(...)):
-    # Save the uploaded file to the server
-    file_location = os.path.join(UPLOAD_DIR, file.filename)
-    
-    with open(file_location, "wb") as f:
-        shutil.copyfileobj(file.file, f)
-    domain_url= os.getenv('DOMAIN_URL')  
-    file_url=f"{domain_url}{file.filename}"  
-    print("File_url",file_url)
-    # Return the URL where the file can be accessed
-    return get_transcription(file_url)
+    try:
+        # Ensure the upload directory exists
+        os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+        # Save the uploaded file
+        file_location = os.path.join(UPLOAD_DIR, file.filename)
+        with open(file_location, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        # Simulate calling transcription logic with the file path
+        transcription_result = await transcribe_audio_logic(file_location)
+        return JSONResponse(content=transcription_result)
+    except AttributeError as e:
+        raise HTTPException(status_code=400, detail="Invalid file format or input") from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+    finally:
+        # Clean up the file
+        if os.path.exists(file_location):
+            os.remove(file_location)
+async def transcribe_audio_logic(file_path: str):
+    # Example logic: Replace with your actual transcription
+    if not os.path.exists(file_path):
+        raise ValueError("File not found")
+    return {"message": f"Transcription of {file_path} completed successfully"}
+
 
 
 def download_youtube_audio(youtube_url: str, output_path: str) -> str:
