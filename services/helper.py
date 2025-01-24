@@ -13,29 +13,48 @@ load_dotenv()
 
 
 UPLOAD_DIR = "uploads"
+import requests
+from fastapi import UploadFile, File, HTTPException
+import os
+
 async def transcribe_audio(file: UploadFile = File(...)):
-    file_location = None  # Define file_location before the try block
     try:
-        # Ensure the upload directory exists
-        os.makedirs(UPLOAD_DIR, exist_ok=True)
+        # Ensure the uploaded file is valid
+        if not file:
+            raise HTTPException(status_code=400, detail="No file uploaded")
+        
+        # Get the domain URL from environment variables
+        domain_url = os.getenv('DOMAIN_URL')
+        if not domain_url:
+            raise HTTPException(status_code=500, detail="DOMAIN_URL is not set")
 
-        # Save the uploaded file
-        file_location = os.path.join(UPLOAD_DIR, file.filename)
-        with open(file_location, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        # Define the upload endpoint
+        upload_endpoint = f"{domain_url}/upload"
 
-        # Simulate calling transcription logic with the file path
-        transcription_result = await transcribe_audio_logic(file_location)
-        return JSONResponse(content=transcription_result)
+        # Prepare the file for uploading
+        files = {
+            "file": (file.filename, file.file, file.content_type)
+        }
 
-    except AttributeError as e:
-        raise HTTPException(status_code=400, detail="Invalid file format or input") from e
+        # Send the file to the server using a POST request
+        response = requests.post(upload_endpoint, files=files)
+
+        # Check for errors in the server response
+        if response.status_code != 200:
+            raise HTTPException(status_code=response.status_code, detail=f"File upload failed: {response.text}")
+
+        # Get the uploaded file's URL from the response
+        file_url = response.json().get("file_url")
+        if not file_url:
+            raise HTTPException(status_code=500, detail="File URL not returned by server")
+
+        # Call the transcription function with the file URL
+        transcription_result = get_transcription(file_url)
+        return transcription_result
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
-    finally:
-        # Clean up the file if it exists
-        if file_location and os.path.exists(file_location):
-            os.remove(file_location)
+
 
 async def transcribe_audio_logic(file_path: str):
     # Example logic: Replace with your actual transcription
