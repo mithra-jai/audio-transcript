@@ -14,6 +14,7 @@ load_dotenv()
 
 UPLOAD_DIR = "uploads"
 async def transcribe_audio(file: UploadFile = File(...)):
+    file_location = None  # Define file_location before the try block
     try:
         # Ensure the upload directory exists
         os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -26,14 +27,16 @@ async def transcribe_audio(file: UploadFile = File(...)):
         # Simulate calling transcription logic with the file path
         transcription_result = await transcribe_audio_logic(file_location)
         return JSONResponse(content=transcription_result)
+
     except AttributeError as e:
         raise HTTPException(status_code=400, detail="Invalid file format or input") from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
     finally:
-        # Clean up the file
-        if os.path.exists(file_location):
+        # Clean up the file if it exists
+        if file_location and os.path.exists(file_location):
             os.remove(file_location)
+
 async def transcribe_audio_logic(file_path: str):
     # Example logic: Replace with your actual transcription
     if not os.path.exists(file_path):
