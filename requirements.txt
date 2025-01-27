@@ -6,3 +6,4 @@ uvicorn==0.34.0
 python-multipart
 python-dotenv==1.0.1
 gradio-client
+yt-dlp==2023.07.06
