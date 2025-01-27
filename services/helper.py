@@ -6,6 +6,8 @@ import time
 from gradio_client import Client, handle_file
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
+import os
+from yt_dlp import YoutubeDL
 
 
 # Load environment variables
@@ -56,11 +58,6 @@ async def transcribe_audio(file_path: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
-import os
-from yt_dlp import YoutubeDL
-
-import os
-from yt_dlp import YoutubeDL
 
 def download_youtube_audio(youtube_url: str, output_path: str):
     """
@@ -88,6 +85,7 @@ def download_youtube_audio(youtube_url: str, output_path: str):
             }],
             'outtmpl': output_template,  # Use template for dynamic extensions
             'quiet': False,  # Suppress logs for production
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
         }
 
         # Download and process the audio
