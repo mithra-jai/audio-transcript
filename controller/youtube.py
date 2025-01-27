@@ -15,8 +15,8 @@ async def transcribe_youtube_video(youtube_url: str):
         output_path = os.path.join(UPLOAD_DIR, "youtube_audio.opus")
         output_path = download_youtube_audio(youtube_url, output_path)
 
-        transcription_result = await asyncio.to_thread(transcribe_audio, output_path)
-        # transcription_result = transcribe_audio(output_path)
+        # transcription_result = await asyncio.to_thread(transcribe_audio, output_path)
+        transcription_result = await transcribe_audio(output_path)
         os.remove(output_path)
 
         return transcription_result

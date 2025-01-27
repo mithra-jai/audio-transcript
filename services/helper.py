@@ -56,40 +56,95 @@ async def transcribe_audio(file_path: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
+import os
+from yt_dlp import YoutubeDL
 
+import os
+from yt_dlp import YoutubeDL
 
+def download_youtube_audio(youtube_url: str, output_path: str):
+    """
+    Downloads audio from a YouTube video and saves it in the specified path.
 
-def download_youtube_audio(youtube_url: str, output_path: str) -> str:
-    import yt_dlp
-    import os
+    :param youtube_url: The YouTube video URL.
+    :param output_path: The full path (including filename) where the audio will be saved.
+    :return: The output path of the downloaded audio file.
+    """
+    try:
+        # Ensure the directory for the output path exists
+        output_dir = os.path.dirname(output_path)
+        os.makedirs(output_dir, exist_ok=True)
 
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'outtmpl': output_path,
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'opus',  # Use Opus codec for better compression
-            'preferredquality': '96',  # Bitrate in kbps (adjust as needed)
-        }],
-        'quiet':False,
-        'verbose':True,
-        'cookiefile': 'cookies.txt',
-        'headers': {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-}
-    }
+        # yt-dlp requires the output template for managing dynamic extensions
+        output_template = os.path.splitext(output_path)[0] + ".%(ext)s"
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([youtube_url])
+        # yt-dlp options
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'opus',
+                'preferredquality': '96',
+            }],
+            'outtmpl': output_template,  # Use template for dynamic extensions
+            'quiet': False,  # Suppress logs for production
+        }
 
-    # Ensure the correct extension is used for Opus files
-    opus_file = output_path + ".opus"
-    if os.path.exists(opus_file):
-        return opus_file
-    elif os.path.exists(output_path):
+        # Download and process the audio
+        with YoutubeDL(ydl_opts) as ydl:
+            info_dict = ydl.extract_info(youtube_url, download=True)
+
+        # Determine the final file path (should match .opus extension)
+        downloaded_file = os.path.splitext(output_template)[0] + ".opus"
+
+        # Check if the .opus file exists
+        if not os.path.exists(downloaded_file):
+            raise Exception("Audio file not found after download and postprocessing.")
+
+        # Rename the file to match the desired output path, if needed
+        if downloaded_file != output_path:
+            os.rename(downloaded_file, output_path)
+
         return output_path
-    else:
-        raise RuntimeError(f"Downloaded file not found at: {output_path}")
+
+    except Exception as e:
+        raise Exception(f"Failed to download audio: {str(e)}")
+
+
+
+
+
+# def download_youtube_audio(youtube_url: str, output_path: str) -> str:
+#     import yt_dlp
+#     import os
+
+#     ydl_opts = {
+#         'format': 'bestaudio/best',
+#         'outtmpl': output_path,
+#         'postprocessors': [{
+#             'key': 'FFmpegExtractAudio',
+#             'preferredcodec': 'opus',  # Use Opus codec for better compression
+#             'preferredquality': '96',  # Bitrate in kbps (adjust as needed)
+#         }],
+#         'quiet':False,
+#         'verbose':True,
+#         'cookiefile': 'cookies.txt',
+#         'headers': {
+#     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+# }
+#     }
+
+#     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+#         ydl.download([youtube_url])
+
+#     # Ensure the correct extension is used for Opus files
+#     opus_file = output_path + ".opus"
+#     if os.path.exists(opus_file):
+#         return opus_file
+#     elif os.path.exists(output_path):
+#         return output_path
+#     else:
+#         raise RuntimeError(f"Downloaded file not found at: {output_path}")
     
     
 import json
