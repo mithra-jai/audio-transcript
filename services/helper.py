@@ -86,6 +86,7 @@ def download_youtube_audio(youtube_url: str, output_path: str):
             'outtmpl': output_template,  # Use template for dynamic extensions
             'quiet': False,  # Suppress logs for production
             'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+             'no_check_certificate': True,  # Disable SSL cert checks
         }
 
         # Download and process the audio

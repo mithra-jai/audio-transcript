@@ -5,7 +5,7 @@ import subprocess
 from fastapi import UploadFile, HTTPException
 from fastapi.responses import JSONResponse
 
-from services.helper import transcribe_audio
+from services.helper import  upload_audio
 
 
 UPLOAD_DIR = "uploads"
@@ -33,7 +33,7 @@ async def transcribe_audio_file(file: UploadFile):
             audio_path = temp_file_path
 
         # Transcribe the smaller audio file
-        transcription_result = await asyncio.to_thread(transcribe_audio, audio_path)
+        transcription_result = await upload_audio(audio_path)
         os.remove(audio_path)
 
         return JSONResponse(content=transcription_result, status_code=200)

@@ -5,7 +5,7 @@ import subprocess
 from fastapi import UploadFile, HTTPException
 from fastapi.responses import JSONResponse
 
-from services.helper import transcribe_audio
+from services.helper import upload_audio
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -39,7 +39,7 @@ async def transcribe_video_file(file: UploadFile):
             raise RuntimeError(f"FFmpeg error: {result.stderr}")
 
         # Transcribe the audio file
-        transcription_result = await transcribe_audio(audio_path)
+        transcription_result = await upload_audio(audio_path)
         os.remove(audio_path)
 
         return transcription_result

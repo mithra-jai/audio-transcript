@@ -4,7 +4,7 @@ import os
 from fastapi.responses import JSONResponse
 from fastapi import HTTPException
 
-from services.helper import download_youtube_audio, transcribe_audio
+from services.helper import download_youtube_audio, upload_audio
 
 
 UPLOAD_DIR = "uploads"
@@ -16,7 +16,7 @@ async def transcribe_youtube_video(youtube_url: str):
         output_path = download_youtube_audio(youtube_url, output_path)
 
         # transcription_result = await asyncio.to_thread(transcribe_audio, output_path)
-        transcription_result = await transcribe_audio(output_path)
+        transcription_result = await  upload_audio(output_path)
         os.remove(output_path)
 
         return transcription_result
