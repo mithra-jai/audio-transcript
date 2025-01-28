@@ -127,7 +127,7 @@ def download_youtube_audio(youtube_url: str, output_path: str):
         os.makedirs(output_dir, exist_ok=True)
 
         # Create YouTube object
-        yt = YouTube(youtube_url, 'WEB')
+        yt = YouTube(youtube_url, 'WEB', use_po_token=True)
 
         # Extract only audio
         video = yt.streams.filter(only_audio=True).first()
