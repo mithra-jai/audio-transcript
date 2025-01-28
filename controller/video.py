@@ -39,6 +39,7 @@ async def transcribe_video_file(file: UploadFile):
             raise RuntimeError(f"FFmpeg error: {result.stderr}")
 
         # Transcribe the audio file
+        print("#####################",audio_path)
         transcription_result = await upload_audio(audio_path)
         os.remove(audio_path)
 
