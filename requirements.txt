@@ -9,3 +9,6 @@ yt-dlp==2023.07.06
 runpod
 httpx
 youtube-transcript-api==0.6.3
+
+celery==5.3.4
+redis==4.6.0
