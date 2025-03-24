@@ -16,40 +16,69 @@ async def transcribe_youtube_video(youtube_url: str, is_runpod: bool = False):
         if is_runpod:
             # Check if video duration is less than 2 hours
             if video_metadata.get("duration_seconds", 0) > 7200:
-                raise HTTPException(status_code=400, detail="Only videos shorter than 2 hours are supported. Please upload a shorter video.")
+                raise HTTPException(
+                    status_code=400, 
+                    detail="Only videos shorter than 2 hours are supported. Please upload a shorter video."
+                )
             data = download_youtube_audio(youtube_url)
             url = data.get("download_url")
             local_path = data.get("local_path")
             if not url:
-                raise HTTPException(status_code=400, detail="Failed to retrieve MP3 link for RunPod.")
-
-            transcription_result = await handle_audio_download_and_transcribe(local_path, url,1200)
+                raise HTTPException(
+                    status_code=400, 
+                    detail="Failed to retrieve MP3 link for RunPod."
+                )
+            transcription_result = await handle_audio_download_and_transcribe(local_path, url, 1200)
             transcription_result.update(video_metadata)
+            # Unified output structure for runpod branch (if needed you can wrap it inside "data")
             return {
-                "status_code": 200,
+                "is_transcript": False,
+                "title": video_metadata.get("title"),
+                "thumbnail": video_metadata.get("thumbnail"),
+                "video_duration": video_metadata.get("video_duration"),
                 "data": transcription_result
             }
 
+        # Get transcripts or fallback data
         data = get_all_transcripts_with_fallback(youtube_url)
-        if data["is_transcript"]:
-            data["title"] = video_metadata.get("title")
-            data["thumbnail"] = video_metadata.get("thumbnail")
-            data["video_duration"] = video_metadata.get("video_duration")
-            return data
+        if data.get("is_transcript"):
+            # When captions are available, wrap the transcript data into a "data" field.
+            result_data = {
+                "is_transcript": True,
+                "title": video_metadata.get("title"),
+                "thumbnail": video_metadata.get("thumbnail"),
+                "video_duration": video_metadata.get("video_duration"),
+                "data": {
+                    "is_runpod": data.get("is_runpod"),
+                    "all_transcripts": data.get("all_transcripts"),
+                    "status_code": data.get("status_code")
+                }
+            }
+            return result_data
         else:
-            url = data["url"]
-            local_file_path=data["local_path"]
+            # Fallback branch: use runpod transcription
+            url = data.get("url")
+            local_file_path = data.get("local_path")
             if not url:
-                raise HTTPException(status_code=500, detail="Failed to retrieve fallback audio link.")
-            # Check duration before fallback runpod transcription
+                raise HTTPException(
+                    status_code=500, 
+                    detail="Failed to retrieve fallback audio link."
+                )
             if video_metadata.get("duration_seconds", 0) > 7200:
-                raise HTTPException(status_code=400, detail="Only videos shorter than 2 hours are supported. Please upload a shorter video.")
-            transcription_result = await handle_audio_download_and_transcribe(local_file_path,url, 1200)
+                raise HTTPException(
+                    status_code=400, 
+                    detail="Only videos shorter than 2 hours are supported. Please upload a shorter video."
+                )
+            transcription_result = await handle_audio_download_and_transcribe(local_file_path, url, 1200)
             transcription_result.update(video_metadata)
-            return {
-                "status_code": 200,
+            result_data = {
+                "is_transcript": False,
+                "title": video_metadata.get("title"),
+                "thumbnail": video_metadata.get("thumbnail"),
+                "video_duration": video_metadata.get("video_duration"),
                 "data": transcription_result
             }
+            return result_data
 
     except Exception as e:
         raise_http_exception_once(
@@ -58,3 +87,4 @@ async def transcribe_youtube_video(youtube_url: str, is_runpod: bool = False):
             f"An error occurred: {str(e)}",
             f"The error: {str(e)}, in transcribe_youtube_video in youtube.py"
         )
+

@@ -101,12 +101,13 @@ def get_all_transcripts(url: str):
     try:
         transcripts_obj = YouTubeTranscriptApi.list_transcripts(video_id, proxies=proxies)
     except NoTranscriptFound as e1:
-        log_error_once(e1, f"The error: {str(e1)}, in get_all_transcripts in youtube_helper.py")
+        # Expected exception: no transcripts found. Do not log to Slack.
         raise NoTranscriptFound(f"No transcripts found for video ID '{video_id}'")
     except TranscriptsDisabled as e2:
-        log_error_once(e2, f"The error: {str(e2)}, in get_all_transcripts in youtube_helper.py")
+        # Expected exception: transcripts are disabled. Do not log to Slack.
         raise TranscriptsDisabled(f"Transcripts are disabled for video ID '{video_id}'")
     except Exception as e3:
+        # Log only unexpected errors.
         log_error_once(e3, f"The error: {str(e3)}, in get_all_transcripts in youtube_helper.py")
         raise
 
@@ -250,7 +251,9 @@ def get_all_transcripts_with_fallback(url: str):
             "status_code": 200
         }
     except (NoTranscriptFound, TranscriptsDisabled, ValueError, Exception) as e:
-        log_error_once(e, f"[Fallback] The error: {str(e)}, in get_all_transcripts_with_fallback in youtube_helper.py")
+        # Only log to Slack if the error is not due to missing subtitles.
+        if not isinstance(e, (NoTranscriptFound, TranscriptsDisabled)):
+            log_error_once(e, f"[Fallback] The error: {str(e)}, in get_all_transcripts_with_fallback in youtube_helper.py")
         print(f"[Fallback] Transcript retrieval failed ({str(e)}). Downloading audio...")
 
         try:
@@ -268,6 +271,7 @@ def get_all_transcripts_with_fallback(url: str):
             log_error_once(audio_error, f"[Error] Audio download also failed: {str(audio_error)}, in get_all_transcripts_with_fallback in youtube_helper.py")
             print(f"[Error] Audio download also failed: {str(audio_error)}")
             raise HTTPException(status_code=500, detail="Failed to retrieve transcript or download audio.")
+
 
 
 
