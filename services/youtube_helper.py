@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import os
 import re
 import time
@@ -27,6 +29,22 @@ proxies = {
     "http": f"http://{proxy_username}:{proxy_password}@gate.smartproxy.com:{proxy_port}",
     "https": f"https://{proxy_username}:{proxy_password}@gate.smartproxy.com:{proxy_port}"
 }
+
+import re
+from fastapi import HTTPException
+
+def is_valid_youtube_url(url: str) -> bool:
+    """Validate if the given URL is a proper YouTube video, Shorts, or shared link."""
+    youtube_patterns = [
+        r"^https?:\/\/(?:www\.)?youtube\.com\/watch\?v=[\w-]+",       # Standard YouTube video URL
+        r"^https?:\/\/youtu\.be\/[\w-]+",                              # Shortened YouTube link
+        r"^https?:\/\/(?:www\.)?youtube\.com\/shorts\/[\w-]+",        # YouTube Shorts URL
+        r"^https?:\/\/youtube\.com\/live\/[\w-]+",                    # YouTube Live video
+        r"^https?:\/\/m\.youtube\.com\/watch\?v=[\w-]+",              # Mobile YouTube link
+    ]
+
+    return any(re.match(pattern, url) for pattern in youtube_patterns)
+
 
 def extract_video_id(url: str) -> str:
     parsed_url = urlparse(url)
@@ -189,58 +207,6 @@ def ensure_audio_only(file_path: str) -> str:
 
     return out_file
 
-# def download_youtube_audio(youtube_url: str):
-#     api_url = os.getenv('YOUTUBE_API_URL')
-#     querystring = {"url": youtube_url}
-#     headers = {
-#         "x-rapidapi-key": os.getenv('YOUTUBE_API_KEY'),
-#         "x-rapidapi-host": os.getenv('YOUTUBE_API_HOST')
-#     }
-
-#     print(f"[Fallback] Requesting MP3 link via RapidAPI for {youtube_url} ...")
-
-#     # We'll try up to 15 times in case of temporary 400 or 5xx errors
-#     attempts = 15
-#     for attempt in range(attempts):
-#         try:
-#             response = requests.get(api_url, headers=headers, params=querystring)
-#             response.raise_for_status()
-#             resp_json = response.json()
-
-#             if resp_json.get("success"):
-#                 download_link = resp_json.get("download")
-#                 if download_link:
-#                     print(download_link, "download_link====================================================")
-#                     return {"download_url": download_link}
-#                 else:
-#                     raise_http_exception_once(
-#                         Exception("No download link"),
-#                         500,
-#                         "Download link not found in response.",
-#                         "The error: Download link not found in response, in download_youtube_audio in youtube_helper.py"
-#                     )
-#             else:
-#                 raise_http_exception_once(
-#                     Exception("API not successful"),
-#                     500,
-#                     "API response was not successful.",
-#                     "The error: API response was not successful, in download_youtube_audio in youtube_helper.py"
-#                 )
-
-#         except requests.exceptions.RequestException as e4:
-#             # If it's the last attempt, raise the error
-#             if attempt == attempts - 1:
-#                 raise_http_exception_once(
-#                     e4,
-#                     500,
-#                     f"Failed to retrieve MP3 link after {attempts} attempts: {str(e4)}",
-#                     f"The error: {str(e4)}, in download_youtube_audio in youtube_helper.py"
-#                 )
-#             else:
-#                 # Otherwise, wait briefly and retry
-#                 print(f"Error on attempt {attempt+1}, retrying in 2s...")
-#                 time.sleep(5)
-
 def get_all_transcripts_with_fallback(url: str):
     try:
         all_t = get_all_transcripts(url)
@@ -301,6 +267,42 @@ def format_duration(total_seconds: int) -> str:
     else:
         return f"{minutes:02d}:{seconds:02d}"
 
+
+def send_webhook_status(
+    task_id: str,
+    status: str,
+    event: str, 
+    success: bool,
+    result: dict = None
+):
+    """
+    Helper to send status updates to the provided webhook URL.
+    """
+    webhook_url= os.getenv('WEBHOOK_URL')
+    secret = os.getenv("MOBILE_WEBHOOK_SECRET")
+    if not webhook_url:
+        return  # if no webhook is configured, do nothing
+    data = {
+        "task_id": task_id,
+        "status": status,
+        "event": event,      # e.g. "event.analyzing_video"
+        "success": success,  # True or False
+        "result": result if result else None
+    }
+    data_json = json.dumps(data, separators=(",", ":"))  
+    signature = hmac.new(secret.encode(), data_json.encode(), hashlib.sha256).hexdigest()
+    # Set headers with X-Signature
+    headers = {
+        "Content-Type": "application/json",
+        "X-Signature": signature
+    }
+    try:
+        response = requests.post(webhook_url, data=data_json, headers=headers)
+        print(f"Webhook Response: {response}======{response.status_code} - {response.text}")
+    except Exception as e:
+        # We log but do not re-raise to avoid killing the background thread
+        log_error_once(e, f"Failed to send status '{status}' to webhook: {str(e)}")
+
 def get_video_metadata(youtube_url: str) -> dict:
     """
     Extracts video metadata (title, thumbnail URL, formatted duration, and duration in seconds)
@@ -345,79 +347,97 @@ def get_video_metadata(youtube_url: str) -> dict:
 
 
 # CMD process -------------------------------------------------------------------
+import requests
+import os
+import uuid
+from services.error_logging import raise_http_exception_once
 
-proxy_username = os.getenv('PROXY_USER')
-proxy_password = os.getenv('PROXY_PASSWORD')
-proxy_port = os.getenv('PROXY_PORT')
+import requests
+import os
+import uuid
+import time
+from services.error_logging import raise_http_exception_once
 
-proxies = {
-    "http": f"http://{proxy_username}:{proxy_password}@gate.smartproxy.com:{proxy_port}",
-    "https": f"https://{proxy_username}:{proxy_password}@gate.smartproxy.com:{proxy_port}"
-}
 
 def download_youtube_audio(youtube_url: str) -> dict:
     """
-    Uses yt-dlp via subprocess to:
-      1) Download the best audio from the given YouTube URL.
-      2) Extract audio and convert it to MP3 at ~192 kbps.
-      3) Store the file in the 'uploads/' folder with a random UUID as the filename.
-      4) Return a 'download_url' that points to the local file.
+    Uses ZylaLabs YouTube Video to Audio API to:
+      1) Fetch the best audio download URL for the given YouTube URL.
+      2) Calls the API repeatedly until it returns {"msg": "success"}.
+      3) Downloads the audio and stores it in the 'uploads/' folder.
+      4) Returns the 'local_file_path' and 'download_url'.
     """
-    print(f"[yt-dlp subprocess] Attempting to download and convert audio for {youtube_url} ...")
+    print(f"[API] Fetching audio download link for {youtube_url} ...")
 
-    # Build proxy string using HTTP scheme (this often works better for HTTPS downloads)
-    proxy_str = proxies.get("http")
-    
-    # Generate a UUID-based output template for a safe filename.
+    # Extract YouTube video ID
+    video_id = extract_video_id(youtube_url)
+    zyla_youtube_api_url = os.getenv("ZYLA_YOUTUBE_API_URL")
+    # ZylaLabs API Endpoint
+    api_url = f"{zyla_youtube_api_url}={video_id}"
+    api_key=os.getenv('ZYLA_YOUTUBE_API_KEY')
+    headers = {
+        "Authorization": f"Bearer {api_key}"
+    }
+
+    # Poll API until msg is "success"
+    max_retries = 10
+    retry_delay = 3  # Seconds
+    audio_data = {}
+
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(api_url, headers=headers)
+            response.raise_for_status()
+            audio_data = response.json()
+            print(f"[API] Attempt {attempt+1}: {audio_data}")
+
+            if audio_data.get("msg") == "success":
+                break  # Exit loop if success
+        except requests.RequestException as e:
+            print(f"[API] Request failed: {str(e)}")
+
+        time.sleep(retry_delay)  # Wait before retrying
+
+    if audio_data.get("msg") != "success":
+        raise_http_exception_once(
+            Exception("API did not return a success response"),
+            500,
+            "API failed to provide a valid audio URL after multiple attempts.",
+            "The error: API did not return success, in download_youtube_audio in youtube_helper.py"
+        )
+
+    # Ensure response contains a valid audio URL
+    download_url = audio_data.get("link")
+    if not download_url:
+        raise_http_exception_once(
+            Exception("No audio URL returned"),
+            500,
+            "API did not return a valid audio download URL.",
+            "The error: No audio URL returned, in download_youtube_audio in youtube_helper.py"
+        )
+
+    # Generate local file path
     random_uuid = uuid.uuid4().hex
-    outtmpl = os.path.join("uploads", random_uuid + ".%(ext)s")
+    local_file_path = os.path.join("uploads", f"{random_uuid}.mp3")
 
-    # Build the command with the proxy and postprocessing options for MP3 conversion.
-    cmd = [
-        "yt-dlp",
-        "--proxy", proxy_str,
-        "--retries", "15",                  # Increase overall retries
-        "--fragment-retries", "15",         # Retry fragment downloads
-        "--socket-timeout", "90",           # Socket timeout in seconds
-        "--extract-audio",
-        "-f", "bestaudio[abr<=64]/worstaudio",
-        "--audio-format", "aac",
-        "--audio-quality", "64K",
-        "-o", outtmpl,
-        youtube_url
-    ]
-    
+    # Download and save the audio file
     try:
-        subprocess.run(cmd, check=True)
-    except subprocess.CalledProcessError as e:
+        audio_response = requests.get(download_url, stream=True)
+        audio_response.raise_for_status()
+
+        with open(local_file_path, "wb") as file:
+            for chunk in audio_response.iter_content(chunk_size=8192):
+                file.write(chunk)
+    except requests.RequestException as e:
         raise_http_exception_once(
             e,
             500,
-            f"yt-dlp failed to download audio: {str(e)}",
-            f"The error: {str(e)}, in download_youtube_audio in youtube_helper.py"
-        )
-    
-    # Determine the final file path.
-    # With the postprocessor, the output should be a .mp3 file.
-    mp3_path = os.path.join("uploads", random_uuid + ".m4a")
-    
-    # Fallback: search for any file starting with our UUID if the expected filename doesn't exist.
-    if not os.path.exists(mp3_path):
-        for fname in os.listdir("uploads"):
-            if fname.startswith(random_uuid):
-                mp3_path = os.path.join("uploads", fname)
-                break
-
-    if not os.path.exists(mp3_path):
-        raise_http_exception_once(
-            Exception("Downloaded file not found"),
-            500,
-            "Downloaded file not found in uploads folder.",
-            "The error: Downloaded file not found, in download_youtube_audio in youtube_helper.py"
+            f"Failed to download audio file: {str(e)}",
+            f"The error: {str(e)}, while downloading audio in download_youtube_audio in youtube_helper.py"
         )
 
-    # Build a domain-based URL to serve the file.
-    domain_url = os.getenv('DOMAIN_URL')
+    # Build final download URL
+    domain_url = os.getenv("DOMAIN_URL")
     if not domain_url:
         raise_http_exception_once(
             Exception("Missing DOMAIN_URL"),
@@ -426,11 +446,90 @@ def download_youtube_audio(youtube_url: str) -> dict:
             "The error: DOMAIN_URL is not set, in download_youtube_audio in youtube_helper.py"
         )
 
-    rel_path = os.path.relpath(mp3_path)  # e.g. 'uploads/<random_uuid>.mp3'
-    download_url = f"{domain_url}/{rel_path}"
+    rel_path = os.path.relpath(local_file_path)
+    final_download_url = f"{domain_url}/{rel_path}"
 
-    return {"download_url": download_url,
-           "local_path": mp3_path}
+    return {
+        "download_url": final_download_url,
+        "local_path": local_file_path
+    }
+
+# def download_youtube_audio(youtube_url: str) -> dict:
+#     """
+#     Uses yt-dlp via subprocess to:
+#       1) Download the best audio from the given YouTube URL.
+#       2) Extract audio and convert it to MP3 at ~192 kbps.
+#       3) Store the file in the 'uploads/' folder with a random UUID as the filename.
+#       4) Return a 'download_url' that points to the local file.
+#     """
+#     print(f"[yt-dlp subprocess] Attempting to download and convert audio for {youtube_url} ...")
+
+#     # Build proxy string using HTTP scheme (this often works better for HTTPS downloads)
+#     proxy_str = proxies.get("http")
+    
+#     # Generate a UUID-based output template for a safe filename.
+#     random_uuid = uuid.uuid4().hex
+#     outtmpl = os.path.join("uploads", random_uuid + ".%(ext)s")
+
+#     # Build the command with the proxy and postprocessing options for MP3 conversion.
+#     cmd = [
+#         "yt-dlp",
+#         "--proxy", proxy_str,
+#         "--retries", "15",                  # Increase overall retries
+#         "--fragment-retries", "15",         # Retry fragment downloads
+#         "--socket-timeout", "90",           # Socket timeout in seconds
+#         "--extract-audio",
+#         "-f", "bestaudio[abr<=64]/worstaudio",
+#         "--audio-format", "aac",
+#         "--audio-quality", "64K",
+#         "-o", outtmpl,
+#         youtube_url
+#     ]
+    
+#     try:
+#         subprocess.run(cmd, check=True)
+#     except subprocess.CalledProcessError as e:
+#         raise_http_exception_once(
+#             e,
+#             500,
+#             f"yt-dlp failed to download audio: {str(e)}",
+#             f"The error: {str(e)}, in download_youtube_audio in youtube_helper.py"
+#         )
+    
+#     # Determine the final file path.
+#     # With the postprocessor, the output should be a .mp3 file.
+#     mp3_path = os.path.join("uploads", random_uuid + ".m4a")
+    
+#     # Fallback: search for any file starting with our UUID if the expected filename doesn't exist.
+#     if not os.path.exists(mp3_path):
+#         for fname in os.listdir("uploads"):
+#             if fname.startswith(random_uuid):
+#                 mp3_path = os.path.join("uploads", fname)
+#                 break
+
+#     if not os.path.exists(mp3_path):
+#         raise_http_exception_once(
+#             Exception("Downloaded file not found"),
+#             500,
+#             "Downloaded file not found in uploads folder.",
+#             "The error: Downloaded file not found, in download_youtube_audio in youtube_helper.py"
+#         )
+
+#     # Build a domain-based URL to serve the file.
+#     domain_url = os.getenv('DOMAIN_URL')
+#     if not domain_url:
+#         raise_http_exception_once(
+#             Exception("Missing DOMAIN_URL"),
+#             500,
+#             "DOMAIN_URL is not set; cannot build final download_url.",
+#             "The error: DOMAIN_URL is not set, in download_youtube_audio in youtube_helper.py"
+#         )
+
+#     rel_path = os.path.relpath(mp3_path)  # e.g. 'uploads/<random_uuid>.mp3'
+#     download_url = f"{domain_url}/{rel_path}"
+
+#     return {"download_url": download_url,
+#            "local_path": mp3_path}
 
 # ------------------------------------------------------------------------------
 #  YT-DLP Python API approach with post-processing => MP3 + proxy

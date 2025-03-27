@@ -9,10 +9,11 @@ import uuid
 import shutil
 from fastapi import UploadFile
 from dotenv import load_dotenv
-
+from services.youtube_helper import send_webhook_status
 from services.error_logging import log_error_once, raise_http_exception_once
 
 load_dotenv()
+
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -171,16 +172,15 @@ def build_chunk_url(file_path: str) -> str:
 
     print(f"{domain_url}/{file_path}","DOMAIN URL")
     return f"{domain_url}/{file_path}"
-
 def single_pass_segment_transcode(input_path: str, segment_time: int = 1200) -> list:
-    base, _ = os.path.splitext(input_path)
-    chunk_pattern = f"{base}_chunk_%03d.aac"
+    base, ext = os.path.splitext(input_path)
+    chunk_pattern = f"{base}_chunk_%03d{ext}"  # Keep the same format
 
     cmd = [
         "ffmpeg",
         "-i", input_path,
         "-vn",
-        "-acodec", "copy",
+        "-acodec", "copy",  # No encoding
         "-f", "segment",
         "-segment_time", str(segment_time),
         "-reset_timestamps", "1",
@@ -198,7 +198,7 @@ def single_pass_segment_transcode(input_path: str, segment_time: int = 1200) -> 
             f"The error: FFmpeg single-pass error: {str(e)}, in single_pass_segment_transcode in helper.py"
         )
 
-    chunk_files = glob.glob(f"{base}_chunk_*.aac")
+    chunk_files = glob.glob(f"{base}_chunk_*{ext}")  # Match correct extension
     chunk_files.sort()
     if not chunk_files:
         raise_http_exception_once(
@@ -209,6 +209,44 @@ def single_pass_segment_transcode(input_path: str, segment_time: int = 1200) -> 
         )
 
     return chunk_files
+
+# def single_pass_segment_transcode(input_path: str, segment_time: int = 1200) -> list:
+#     base, _ = os.path.splitext(input_path)
+#     chunk_pattern = f"{base}_chunk_%03d.aac"
+
+#     cmd = [
+#         "ffmpeg",
+#         "-i", input_path,
+#         "-vn",
+#         "-acodec", "copy",
+#         "-f", "segment",
+#         "-segment_time", str(segment_time),
+#         "-reset_timestamps", "1",
+#         chunk_pattern,
+#         "-y"
+#     ]
+
+#     try:
+#         subprocess.run(cmd, check=True)
+#     except subprocess.CalledProcessError as e:
+#         raise_http_exception_once(
+#             e,
+#             500,
+#             f"FFmpeg single-pass error: {str(e)}",
+#             f"The error: FFmpeg single-pass error: {str(e)}, in single_pass_segment_transcode in helper.py"
+#         )
+
+#     chunk_files = glob.glob(f"{base}_chunk_*.aac")
+#     chunk_files.sort()
+#     if not chunk_files:
+#         raise_http_exception_once(
+#             Exception("No chunk files"),
+#             500,
+#             "No chunk files created by FFmpeg.",
+#             "The error: No chunk files created by FFmpeg, in single_pass_segment_transcode in helper.py"
+#         )
+
+#     return chunk_files
 
 async def single_pass_chunk_and_transcribe(file_path: str, segment_time: int = 1200) -> dict:
     chunk_start = time.time()
@@ -442,7 +480,7 @@ def ensure_audio_only(file_path: str) -> str:
     return out_file
 
 # **New** function to unify download + transcribe logic
-async def handle_audio_download_and_transcribe(local_path: str, url: str, chunk_size: int = 1200) -> dict:
+async def handle_audio_download_and_transcribe(local_path: str, url: str,task_id ,chunk_size: int = 1200) -> dict:
     """
     Downloads an audio file from 'url', ensures it is single audio-only,
     chunk & transcribe, then cleans up.
@@ -458,7 +496,13 @@ async def handle_audio_download_and_transcribe(local_path: str, url: str, chunk_
 
     audio_only_file = ensure_audio_only(local_filename)
     print("ensure_audio_only => returned:", audio_only_file)
-    transcription_result = await single_pass_chunk_and_transcribe(audio_only_file, chunk_size)
+    try:
+        print("Transcribing audio...")
+        send_webhook_status(task_id, "Transcribing Audio", "event.transcribing_audio", True)
+        transcription_result = await single_pass_chunk_and_transcribe(audio_only_file, chunk_size)
+    except Exception as e:
+        send_webhook_status(task_id, f"Transcribing Audio Failed - {str(e)}", "event.transcribing_audio", False)
+        raise   
 
     # Cleanup
     safe_remove(audio_only_file)
